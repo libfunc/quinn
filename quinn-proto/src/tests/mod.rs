@@ -11,7 +11,8 @@ use bytes::{Bytes, BytesMut};
 use hex_literal::hex;
 use rand::RngCore;
 use ring::hmac;
-use rustls::AlertDescription;
+use rustls::{server::WebPkiClientVerifier, AlertDescription, RootCertStore};
+use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tracing::info;
 
 use super::*;
@@ -375,18 +376,16 @@ fn reject_self_signed_server_cert() {
 fn reject_missing_client_cert() {
     let _guard = subscribe();
 
-    let key = rustls::PrivateKey(CERTIFICATE.serialize_private_key_der());
-    let cert = util::CERTIFICATE.serialize_der().unwrap();
+    let key = PrivatePkcs8KeyDer::from(CERTIFICATE.serialize_private_key_der());
+    let cert = CertificateDer::from(util::CERTIFICATE.serialize_der().unwrap());
 
     let config = rustls::ServerConfig::builder()
-        .with_safe_default_cipher_suites()
-        .with_safe_default_kx_groups()
-        .with_protocol_versions(&[&rustls::version::TLS13])
-        .unwrap()
-        .with_client_cert_verifier(Arc::new(rustls::server::AllowAnyAuthenticatedClient::new(
-            rustls::RootCertStore::empty(),
-        )))
-        .with_single_cert(vec![rustls::Certificate(cert)], key)
+        .with_client_cert_verifier(
+            WebPkiClientVerifier::builder(Arc::new(RootCertStore::empty()))
+                .build()
+                .unwrap(),
+        )
+        .with_single_cert(vec![cert], PrivateKeyDer::from(key))
         .unwrap();
 
     let mut pair = Pair::new(
@@ -1918,7 +1917,7 @@ fn server_can_send_3_inital_packets() {
 }
 
 /// Generate a big fat certificate that can't fit inside the initial anti-amplification limit
-fn big_cert_and_key() -> (rustls::Certificate, rustls::PrivateKey) {
+fn big_cert_and_key() -> (CertificateDer<'static>, PrivateKeyDer<'static>) {
     let cert = rcgen::generate_simple_self_signed(
         Some("localhost".into())
             .into_iter()
@@ -1926,9 +1925,11 @@ fn big_cert_and_key() -> (rustls::Certificate, rustls::PrivateKey) {
             .collect::<Vec<_>>(),
     )
     .unwrap();
-    let key = rustls::PrivateKey(cert.serialize_private_key_der());
-    let cert = rustls::Certificate(cert.serialize_der().unwrap());
-    (cert, key)
+
+    (
+        CertificateDer::from(cert.serialize_der().unwrap()),
+        PrivateKeyDer::Pkcs8(cert.serialize_private_key_der().into()),
+    )
 }
 
 #[test]

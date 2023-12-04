@@ -370,6 +370,7 @@ impl Connection {
             this.write_crypto();
             this.init_0rtt();
         }
+
         this
     }
 
