@@ -838,14 +838,17 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "rustls")]
+    #[cfg(all(feature = "rustls", feature = "rustls-ring"))]
     #[test]
     fn header_encoding() {
         use crate::{crypto::rustls::initial_keys, Side};
-        use rustls::quic::Version;
+        use rustls::crypto::ring::default_provider;
+        use rustls::quic::{InitialSuite, Version};
 
         let dcid = ConnectionId::new(&hex!("06b858ec6f80452b"));
-        let client = initial_keys(Version::V1, &dcid, Side::Client);
+        let provider = default_provider();
+        let suite = InitialSuite::from_provider(&provider).unwrap();
+        let client = initial_keys(Version::V1, &dcid, Side::Client, suite);
         let mut buf = BytesMut::new();
         let header = Header::Initial {
             number: PacketNumber::U8(0),
@@ -875,7 +878,7 @@ mod tests {
             )[..]
         );
 
-        let server = initial_keys(Version::V1, &dcid, Side::Server);
+        let server = initial_keys(Version::V1, &dcid, Side::Server, suite);
         let supported_versions = DEFAULT_SUPPORTED_VERSIONS.to_vec();
         let decode = PartialDecode::new(buf, 0, &supported_versions, false)
             .unwrap()

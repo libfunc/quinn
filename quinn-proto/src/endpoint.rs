@@ -20,7 +20,7 @@ use crate::{
     coding::BufMutExt,
     config::{ClientConfig, EndpointConfig, ServerConfig},
     connection::{Connection, ConnectionError},
-    crypto::{self, Keys, UnsupportedVersion},
+    crypto::{self, CryptoError, Keys},
     frame,
     packet::{Header, Packet, PacketDecodeError, PacketNumber, PartialDecode},
     shared::{
@@ -28,8 +28,8 @@ use crate::{
         EndpointEventInner, IssuedCid,
     },
     transport_parameters::TransportParameters,
-    ResetToken, RetryToken, Side, Transmit, TransportConfig, TransportError, INITIAL_MTU,
-    MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
+    ResetToken, RetryToken, Transmit, TransportConfig, TransportError, INITIAL_MTU, MAX_CID_SIZE,
+    MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
 };
 
 /// The main entry point to the library
@@ -216,18 +216,19 @@ impl Endpoint {
                 return None;
             }
 
-            let crypto = match server_config
-                .crypto
-                .initial_keys(version, dst_cid, Side::Server)
-            {
+            let crypto = match server_config.crypto.initial_keys(version, dst_cid) {
                 Ok(keys) => keys,
-                Err(UnsupportedVersion) => {
+                Err(CryptoError::UnsupportedVersion) => {
                     // This probably indicates that the user set supported_versions incorrectly in
                     // `EndpointConfig`.
                     debug!(
                         "ignoring initial packet version {:#x} unsupported by cryptographic layer",
                         version
                     );
+                    return None;
+                }
+                Err(err) => {
+                    debug!("dropping initial packet: {err}");
                     return None;
                 }
             };
@@ -325,7 +326,7 @@ impl Endpoint {
             return Err(ConnectError::InvalidRemoteAddress(remote));
         }
         if !self.config.supported_versions.contains(&config.version) {
-            return Err(ConnectError::UnsupportedVersion);
+            return Err(ConnectError::Crypto(CryptoError::UnsupportedVersion));
         }
 
         let remote_id = RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid();
@@ -868,6 +869,9 @@ pub enum DatagramEvent {
 /// These arise before any I/O has been performed.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ConnectError {
+    /// The local endpoint does not support the QUIC version specified in the client configuration
+    #[error("crypto: {0}")]
+    Crypto(#[from] CryptoError),
     /// The endpoint can no longer create new connections
     ///
     /// Indicates that a necessary component of the endpoint has been dropped or otherwise disabled.
@@ -891,9 +895,6 @@ pub enum ConnectError {
     /// Use `Endpoint::connect_with` to specify a client configuration.
     #[error("no default client config")]
     NoDefaultClientConfig,
-    /// The local endpoint does not support the QUIC version specified in the client configuration
-    #[error("unsupported QUIC version")]
-    UnsupportedVersion,
 }
 
 /// Reset Tokens which are associated with peer socket addresses
