@@ -13,6 +13,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use clap::Parser;
+use rustls::pki_types::CertificateDer;
 use tracing::{error, info};
 use url::Url;
 
@@ -71,12 +72,14 @@ async fn run(options: Opt) -> Result<()> {
 
     let mut roots = rustls::RootCertStore::empty();
     if let Some(ca_path) = options.ca {
-        roots.add(&rustls::Certificate(fs::read(ca_path)?))?;
+        let cert = CertificateDer::from(fs::read(ca_path)?);
+        roots.add(cert)?;
     } else {
         let dirs = directories_next::ProjectDirs::from("org", "quinn", "quinn-examples").unwrap();
         match fs::read(dirs.data_local_dir().join("cert.der")) {
             Ok(cert) => {
-                roots.add(&rustls::Certificate(cert))?;
+                let cert = CertificateDer::from(cert);
+                roots.add(cert)?;
             }
             Err(ref e) if e.kind() == io::ErrorKind::NotFound => {
                 info!("local server certificate not found");
@@ -87,7 +90,6 @@ async fn run(options: Opt) -> Result<()> {
         }
     }
     let mut client_crypto = rustls::ClientConfig::builder()
-        .with_safe_defaults()
         .with_root_certificates(roots)
         .with_no_client_auth();
 

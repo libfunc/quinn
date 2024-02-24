@@ -824,7 +824,7 @@ impl ServerConfig {
     }
 }
 
-#[cfg(feature = "rustls")]
+#[cfg(feature = "ring")]
 impl ServerConfig {
     /// Create a server config with the given certificate chain to be presented to clients
     ///
@@ -836,10 +836,7 @@ impl ServerConfig {
         let crypto = crypto::rustls::server_config(cert_chain, key)?;
         Ok(Self::with_crypto(Arc::new(crypto)))
     }
-}
 
-#[cfg(feature = "ring")]
-impl ServerConfig {
     /// Create a server config with the given [`crypto::ServerConfig`]
     ///
     /// Uses a randomized handshake token key.

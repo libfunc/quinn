@@ -5,7 +5,9 @@ use ring::aead;
 pub use rustls::Error;
 use rustls::{
     self,
-    quic::{Connection, HeaderProtectionKey, InitialSuite, KeyChange, PacketKey, Secrets, Version},
+    crypto::ring::cipher_suite,
+    quic::{Connection, HeaderProtectionKey, KeyChange, PacketKey, Secrets, Version},
+    SupportedCipherSuite, Tls13CipherSuite,
 };
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 
@@ -24,13 +26,33 @@ impl From<Side> for rustls::Side {
     }
 }
 
+impl From<rustls::quic::Keys> for Keys {
+    fn from(keys: rustls::quic::Keys) -> Self {
+        Keys {
+            header: KeyPair {
+                local: Box::new(keys.local.header),
+                remote: Box::new(keys.remote.header),
+            },
+            packet: KeyPair {
+                local: Box::new(keys.local.packet),
+                remote: Box::new(keys.remote.packet),
+            },
+        }
+    }
+}
+
+static CIPHER_SUITES: [&SupportedCipherSuite; 3] = [
+    &cipher_suite::TLS13_AES_256_GCM_SHA384,
+    &cipher_suite::TLS13_AES_128_GCM_SHA256,
+    &cipher_suite::TLS13_CHACHA20_POLY1305_SHA256,
+];
+
 /// A rustls TLS session
 pub struct TlsSession {
     version: Version,
     got_handshake_data: bool,
     next_secrets: Option<Secrets>,
     inner: Connection,
-    suite: InitialSuite,
 }
 
 impl TlsSession {
@@ -44,7 +66,8 @@ impl TlsSession {
 
 impl crypto::Session for TlsSession {
     fn initial_keys(&self, dst_cid: &ConnectionId, side: Side) -> Keys {
-        initial_keys(self.version, dst_cid, side, self.suite)
+        let suite = CIPHER_SUITES[0].tls13().unwrap();
+        initial_keys(self.version, dst_cid, side, suite)
     }
 
     fn handshake_data(&self) -> Option<Box<dyn Any>> {
@@ -254,7 +277,6 @@ impl crypto::ClientConfig for rustls::ClientConfig {
         params: &TransportParameters,
     ) -> Result<Box<dyn crypto::Session>, ConnectError> {
         let version = interpret_version(version)?;
-        let suite = InitialSuite::from_provider((*self).as_ref()).unwrap();
         Ok(Box::new(TlsSession {
             version,
             got_handshake_data: false,
@@ -270,7 +292,6 @@ impl crypto::ClientConfig for rustls::ClientConfig {
                 )
                 .unwrap(),
             ),
-            suite,
         }))
     }
 }
@@ -282,7 +303,6 @@ impl crypto::ServerConfig for rustls::ServerConfig {
         params: &TransportParameters,
     ) -> Box<dyn crypto::Session> {
         let version = interpret_version(version).unwrap();
-        let suite = InitialSuite::from_provider((*self).as_ref()).unwrap();
         Box::new(TlsSession {
             version,
             got_handshake_data: false,
@@ -290,14 +310,12 @@ impl crypto::ServerConfig for rustls::ServerConfig {
             inner: rustls::quic::Connection::Server(
                 rustls::quic::ServerConnection::new(self, version, to_vec(params)).unwrap(),
             ),
-            suite,
         })
     }
 
     fn initial_keys(&self, version: u32, dst_cid: &ConnectionId) -> Result<Keys, CryptoError> {
         let version = interpret_version(version)?;
-        // We validate that this works on configuration, so we can `unwrap()` here.
-        let suite = InitialSuite::from_provider((*self).as_ref()).unwrap();
+        let suite = CIPHER_SUITES[0].tls13().unwrap();
         Ok(initial_keys(version, dst_cid, Side::Server, suite))
     }
 
@@ -336,9 +354,10 @@ pub(crate) fn initial_keys(
     version: Version,
     dst_cid: &ConnectionId,
     side: Side,
-    suite: InitialSuite,
+    suite: &'static Tls13CipherSuite,
 ) -> Keys {
-    let keys = suite.keys(dst_cid, side.into(), version);
+    let quic = suite.quic.unwrap();
+    let keys = rustls::quic::Keys::initial(version, suite, quic, dst_cid, side.into());
     Keys {
         header: KeyPair {
             local: Box::new(keys.local.header),
@@ -378,11 +397,13 @@ impl crypto::PacketKey for Box<dyn PacketKey> {
     }
 
     fn confidentiality_limit(&self) -> u64 {
-        (**self).confidentiality_limit()
+        // (**self).confidentiality_limit()
+        todo!()
     }
 
     fn integrity_limit(&self) -> u64 {
-        (**self).integrity_limit()
+        // (**self).integrity_limit()
+        todo!()
     }
 }
 

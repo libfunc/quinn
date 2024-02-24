@@ -842,13 +842,11 @@ mod tests {
     #[test]
     fn header_encoding() {
         use crate::{crypto::rustls::initial_keys, Side};
-        use rustls::crypto::ring::default_provider;
-        use rustls::quic::{InitialSuite, Version};
+        use rustls::{crypto::ring::cipher_suite::TLS13_AES_256_GCM_SHA384, quic::Version};
 
         let dcid = ConnectionId::new(&hex!("06b858ec6f80452b"));
-        let provider = default_provider();
-        let suite = InitialSuite::from_provider(&provider).unwrap();
-        let client = initial_keys(Version::V1, &dcid, Side::Client, suite);
+        let sute = TLS13_AES_256_GCM_SHA384.tls13().unwrap();
+        let client = initial_keys(Version::V1, &dcid, Side::Client, sute);
         let mut buf = BytesMut::new();
         let header = Header::Initial {
             number: PacketNumber::U8(0),
@@ -878,7 +876,7 @@ mod tests {
             )[..]
         );
 
-        let server = initial_keys(Version::V1, &dcid, Side::Server, suite);
+        let server = initial_keys(Version::V1, &dcid, Side::Server, sute);
         let supported_versions = DEFAULT_SUPPORTED_VERSIONS.to_vec();
         let decode = PartialDecode::new(buf, 0, &supported_versions, false)
             .unwrap()

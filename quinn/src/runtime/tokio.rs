@@ -39,6 +39,7 @@ impl AsyncTimer for Sleep {
     fn reset(self: Pin<&mut Self>, t: Instant) {
         Self::reset(self, t.into())
     }
+
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<()> {
         Future::poll(self, cx)
     }
